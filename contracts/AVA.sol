@@ -1,0 +1,203 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.18;
+
+import "@openzeppelin/contracts/token/ERC20/presets/ERC20PresetMinterPauser.sol";
+
+contract AVA is ERC20PresetMinterPauser {
+    struct YearlyMintInfo {
+        uint256 maxMintAmount;
+        uint256 currentMintAmount;
+        uint256 remainingMintAmount;
+    }
+
+    uint256 private constant YEAR_DURATION = 365 days;
+    uint256 public startTime;
+
+    uint256 private constant E18 = 10 ** 18;
+    uint256 private immutable STARTING_SUPPLY;
+    uint256 public MAX_SUPPLY;
+
+    // yearID (e.g. 1 or 2) => YearlyMintInfo
+    mapping(uint256 => YearlyMintInfo) public inflationaryModelPerYear;
+    uint256 public inflationaryModelTotalYears;
+
+    constructor(
+        address startingSupplyReceiverWallet
+    ) ERC20PresetMinterPauser("AVA", "AVA") {
+        require(
+            startingSupplyReceiverWallet != address(0),
+            "AVA: startingSupplyReceiverWallet invalid"
+        );
+        STARTING_SUPPLY = 61_011_389 * E18;
+        MAX_SUPPLY = 100_000_000 * E18;
+        startTime = block.timestamp;
+
+        // Initial mint with the specified starting supply
+        super.mint(startingSupplyReceiverWallet, STARTING_SUPPLY);
+
+        // Define the inflationary model
+        inflationaryModelPerYear[1] = YearlyMintInfo(4_469_096, 0, 4_469_096);
+        inflationaryModelPerYear[2] = YearlyMintInfo(4_469_056, 0, 4_469_056);
+        inflationaryModelPerYear[3] = YearlyMintInfo(4_424_322, 0, 4_424_322);
+        inflationaryModelPerYear[4] = YearlyMintInfo(4_332_292, 0, 4_332_292);
+        inflationaryModelPerYear[5] = YearlyMintInfo(4_191_118, 0, 4_191_118);
+        inflationaryModelPerYear[6] = YearlyMintInfo(3_999_810, 0, 3_999_810);
+        inflationaryModelPerYear[7] = YearlyMintInfo(3_758_316, 0, 3_758_316);
+        inflationaryModelPerYear[8] = YearlyMintInfo(3_467_587, 0, 3_467_587);
+        inflationaryModelPerYear[9] = YearlyMintInfo(3_129_608, 0, 3_129_608);
+        inflationaryModelPerYear[10] = YearlyMintInfo(2_747_405, 0, 2_747_405);
+
+        inflationaryModelTotalYears = 10;
+    }
+
+    // Only admin role can update the inflationary model
+    function updateInflationaryModelPerYear(
+        uint256 yearID,
+        uint256 maxMintAmount
+    ) external {
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
+            "AVA: must have admin role to set the inflationary model"
+        );
+        require(yearID > 0, "AVA: yearID must be positive");
+        uint256 currentYear = getCurrentYear();
+        require(
+            yearID >= currentYear,
+            "AVA: yearID must be from current year afterwards"
+        );
+
+        require(maxMintAmount > 0, "AVA: maxMintAmount must be positive");
+        require(
+            (ERC20.totalSupply() + (maxMintAmount * E18)) <= MAX_SUPPLY,
+            "AVA: maxMintAmount invalid as max supply exceeded"
+        );
+
+        require(
+            inflationaryModelPerYear[yearID].maxMintAmount > 0,
+            "AVA: inflationary model for the given year not exist"
+        );
+
+        require(
+            maxMintAmount >= inflationaryModelPerYear[yearID].currentMintAmount,
+            "AVA: maxMintAmount invalid as smaller than currentMintAmount"
+        );
+        inflationaryModelPerYear[yearID].maxMintAmount = maxMintAmount;
+        inflationaryModelPerYear[yearID].remainingMintAmount =
+            maxMintAmount -
+            inflationaryModelPerYear[yearID].currentMintAmount;
+    }
+
+    // Only admin role can add new inflationary model
+    function addNewYearForInflationaryModel(uint256 maxMintAmount) external {
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
+            "AVA: must have admin role to set the inflationary model"
+        );
+        require(maxMintAmount > 0, "AVA: maxMintAmount must be positive");
+        require(
+            (ERC20.totalSupply() + (maxMintAmount * E18)) <= MAX_SUPPLY,
+            "AVA: maxMintAmount invalid as max supply exceeded"
+        );
+
+        inflationaryModelTotalYears++;
+
+        inflationaryModelPerYear[inflationaryModelTotalYears] = YearlyMintInfo(
+            maxMintAmount,
+            0,
+            maxMintAmount
+        );
+    }
+
+    // 1 for year 1
+    // 2 for year 2
+    function getCurrentYear() public view returns (uint256) {
+        uint256 currentYear = ((block.timestamp - startTime) / YEAR_DURATION) +
+            1;
+        return currentYear;
+    }
+
+    function setMaxSupply(uint256 maxSupply) external {
+        uint256 maxSupplyE18 = maxSupply * E18;
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
+            "AVA: must have admin role to set the max supply"
+        );
+        require(
+            maxSupplyE18 >= ERC20.totalSupply(),
+            "AVA: new max supply must be >= the total supply"
+        );
+        MAX_SUPPLY = maxSupplyE18;
+    }
+
+    // Only for test with the extra change of YEAR_DURATION to some minutes long
+    function resetStartTime() external {
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
+            "AVA: must have admin role to reset the start time"
+        );
+        startTime = block.timestamp;
+    }
+
+    // At any time within the current year, only MINTER_ROLE wallet can mint
+    // the amount of tokens for multiple times as long as the maxMintAmount
+    // of the current year is not exceeded.
+    // Max supply must also be respected.
+    function mintCurrentYear(address to, uint256 amount) public {
+        require(to != address(0), "AVA: invalid to address");
+        require(amount > 0, "AVA: amount must be positive");
+
+        uint256 amountE18 = amount * E18;
+        require(
+            (ERC20.totalSupply() + amountE18) <= MAX_SUPPLY,
+            "AVA: max supply exceeded"
+        );
+
+        uint256 currentYear = getCurrentYear();
+        require(
+            inflationaryModelPerYear[currentYear].maxMintAmount > 0,
+            "AVA: inflationary model for the current year not set"
+        );
+        require(
+            inflationaryModelPerYear[currentYear].remainingMintAmount > 0,
+            "AVA: no further mint possible for the current year"
+        );
+        require(
+            inflationaryModelPerYear[currentYear].remainingMintAmount >= amount,
+            "AVA: amount exceeds the remainingMintAmount for the current year"
+        );
+
+        super.mint(to, amountE18);
+
+        inflationaryModelPerYear[currentYear].currentMintAmount += amount;
+
+        inflationaryModelPerYear[currentYear].remainingMintAmount -= amount;
+    }
+
+    // At any time within the current year, only MINTER_ROLE wallet can mint
+    // the remaining tokens (if any) at once
+    function mintRemainingCurrentYear(address to) external {
+        uint256 currentYear = getCurrentYear();
+        uint256 amount = inflationaryModelPerYear[currentYear]
+            .remainingMintAmount;
+        require(
+            amount > 0,
+            "AVA: no further remaining tokens of the current year to mint"
+        );
+        mintCurrentYear(to, amount);
+    }
+
+    // At any time, only MINTER_ROLE wallet can mint
+    // the remaining tokens (if any) of the specified past year
+    function mintRemainingPastYear(address to, uint256 pastYearID) external {
+        require(pastYearID > 0, "AVA: pastYearID must be positive");
+        uint256 currentYear = getCurrentYear();
+        require(pastYearID < currentYear, "AVA: pastYearID not a past year");
+        uint256 amount = inflationaryModelPerYear[pastYearID]
+            .remainingMintAmount;
+        require(
+            amount > 0,
+            "AVA: no further remaining tokens of the specified past year to mint"
+        );
+        mintCurrentYear(to, amount);
+    }
+}
