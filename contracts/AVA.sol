@@ -15,11 +15,39 @@ contract AVA is ERC20PresetMinterPauser {
 
     uint256 private constant E18 = 10 ** 18;
     uint256 private immutable STARTING_SUPPLY;
+
+    // Can only be increased after 10-period
     uint256 public MAX_SUPPLY;
+
+    // yearID (e.g. 11 or 12) => true/false
+    mapping(uint256 => bool) public maxSupplyAlreadyIncreased;
+    uint256 public constant PERCENT_BASE = 10_000;
 
     // yearID (e.g. 1 or 2) => YearlyMintInfo
     mapping(uint256 => YearlyMintInfo) public inflationaryModelPerYear;
     uint256 public inflationaryModelTotalYears;
+
+    event EvtUpdateInflationaryModelPerYear(
+        uint256 yearID,
+        uint256 maxMintAmount
+    );
+    event EvtAddNewYearForInflationaryModel(
+        uint256 newYearID,
+        uint256 maxMintAmount
+    );
+    event EvtIncreaseMaxSupply(uint256 maxSupplyIncreasingPercent);
+    event EvtResetStartTime(uint256 startTime);
+    event EvtMintCurrentYear(address to, uint256 amount, uint256 currentYearID);
+    event EvtMintRemainingCurrentYear(
+        address to,
+        uint256 amount,
+        uint256 currentYearID
+    );
+    event EvtMintRemainingPastYear(
+        address to,
+        uint256 amount,
+        uint256 pastYearID
+    );
 
     constructor(
         address startingSupplyReceiverWallet
@@ -85,6 +113,8 @@ contract AVA is ERC20PresetMinterPauser {
         inflationaryModelPerYear[yearID].remainingMintAmount =
             maxMintAmount -
             inflationaryModelPerYear[yearID].currentMintAmount;
+
+        emit EvtUpdateInflationaryModelPerYear(yearID, maxMintAmount);
     }
 
     // Only admin role can add new inflationary model
@@ -106,6 +136,11 @@ contract AVA is ERC20PresetMinterPauser {
             0,
             maxMintAmount
         );
+
+        emit EvtAddNewYearForInflationaryModel(
+            inflationaryModelTotalYears,
+            maxMintAmount
+        );
     }
 
     // 1 for year 1
@@ -116,17 +151,52 @@ contract AVA is ERC20PresetMinterPauser {
         return currentYear;
     }
 
-    function setMaxSupply(uint256 maxSupply) external {
-        uint256 maxSupplyE18 = maxSupply * E18;
+    function getInflationayModelCurrentYear()
+        external
+        view
+        returns (uint256, uint256, uint256)
+    {
+        uint256 currentYear = getCurrentYear();
+        return (
+            inflationaryModelPerYear[currentYear].maxMintAmount,
+            inflationaryModelPerYear[currentYear].currentMintAmount,
+            inflationaryModelPerYear[currentYear].remainingMintAmount
+        );
+    }
+
+    // After 10 years, it's possible to increase the max supply by the specified percent
+    // Example: 280 for 2.8% or 430 for 4.3%
+    function increaseMaxSupply(uint256 maxSupplyIncreasingPercent) external {
+        uint256 currentYear = getCurrentYear();
+        require(
+            currentYear > 10,
+            "AVA: cannot increase max supply before 10-year period"
+        );
+        require(
+            maxSupplyAlreadyIncreased[currentYear] == false,
+            "AVA: max supply can only be increased once in a year"
+        );
+        require(
+            maxSupplyIncreasingPercent > 0,
+            "AVA: maxSupplyIncreasingPercent must be > 0%"
+        );
+        require(
+            maxSupplyIncreasingPercent < PERCENT_BASE,
+            "AVA: maxSupplyIncreasingPercent must be < 100%"
+        );
+
         require(
             hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
             "AVA: must have admin role to set the max supply"
         );
-        require(
-            maxSupplyE18 >= ERC20.totalSupply(),
-            "AVA: new max supply must be >= the total supply"
-        );
-        MAX_SUPPLY = maxSupplyE18;
+
+        MAX_SUPPLY +=
+            (maxSupplyIncreasingPercent * ERC20.totalSupply()) /
+            PERCENT_BASE;
+
+        maxSupplyAlreadyIncreased[currentYear] = true;
+
+        emit EvtIncreaseMaxSupply(maxSupplyIncreasingPercent);
     }
 
     // Only for test with the extra change of YEAR_DURATION to some minutes long
@@ -136,6 +206,8 @@ contract AVA is ERC20PresetMinterPauser {
             "AVA: must have admin role to reset the start time"
         );
         startTime = block.timestamp;
+
+        emit EvtResetStartTime(block.timestamp);
     }
 
     // At any time within the current year, only MINTER_ROLE wallet can mint
@@ -171,6 +243,8 @@ contract AVA is ERC20PresetMinterPauser {
         inflationaryModelPerYear[currentYear].currentMintAmount += amount;
 
         inflationaryModelPerYear[currentYear].remainingMintAmount -= amount;
+
+        emit EvtMintCurrentYear(to, amount, currentYear);
     }
 
     // At any time within the current year, only MINTER_ROLE wallet can mint
@@ -184,6 +258,8 @@ contract AVA is ERC20PresetMinterPauser {
             "AVA: no further remaining tokens of the current year to mint"
         );
         mintCurrentYear(to, amount);
+
+        emit EvtMintRemainingCurrentYear(to, amount, currentYear);
     }
 
     // At any time, only MINTER_ROLE wallet can mint
@@ -199,5 +275,7 @@ contract AVA is ERC20PresetMinterPauser {
             "AVA: no further remaining tokens of the specified past year to mint"
         );
         mintCurrentYear(to, amount);
+
+        emit EvtMintRemainingPastYear(to, amount, pastYearID);
     }
 }
