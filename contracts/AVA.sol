@@ -119,6 +119,11 @@ contract AVA is ERC20PresetMinterPauser {
 
     // Only admin role can add new inflationary model
     function addNewYearForInflationaryModel(uint256 maxMintAmount) external {
+        uint256 currentYear = getCurrentYear();
+        require(
+            currentYear > 10,
+            "AVA: cannot add new inflationary model before 10-year period"
+        );
         require(
             hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
             "AVA: must have admin role to set the inflationary model"
@@ -265,16 +270,34 @@ contract AVA is ERC20PresetMinterPauser {
     // At any time, only MINTER_ROLE wallet can mint
     // the remaining tokens (if any) of the specified past year
     function mintRemainingPastYear(address to, uint256 pastYearID) external {
+        require(to != address(0), "AVA: invalid to address");
         require(pastYearID > 0, "AVA: pastYearID must be positive");
+
         uint256 currentYear = getCurrentYear();
-        require(pastYearID < currentYear, "AVA: pastYearID not a past year");
+        require(pastYearID < currentYear, "AVA: pastYearID is not a past year");
+
+        require(
+            inflationaryModelPerYear[pastYearID].maxMintAmount > 0,
+            "AVA: inflationary model for the given pastYearID not exist"
+        );
+
         uint256 amount = inflationaryModelPerYear[pastYearID]
             .remainingMintAmount;
         require(
             amount > 0,
             "AVA: no further remaining tokens of the specified past year to mint"
         );
-        mintCurrentYear(to, amount);
+
+        uint256 amountE18 = amount * E18;
+        require(
+            (ERC20.totalSupply() + amountE18) <= MAX_SUPPLY,
+            "AVA: max supply exceeded"
+        );
+
+        super.mint(to, amountE18);
+
+        inflationaryModelPerYear[pastYearID].currentMintAmount += amount;
+        inflationaryModelPerYear[pastYearID].remainingMintAmount -= amount;
 
         emit EvtMintRemainingPastYear(to, amount, pastYearID);
     }

@@ -19,7 +19,8 @@ const sleep = (ms) => {
 describe('AVA', function () {
   const deployerAccount = accounts[0];
   const STARTING_SUPPLY_RECEIVING_WALLET = accounts[1];
-  const someAccount = accounts[2];
+  const toAccount = accounts[2];
+  const toAccount2 = accounts[3];
 
   const STARTING_SUPPLY = '61011389';
 
@@ -97,20 +98,16 @@ describe('AVA', function () {
       'AVA: invalid to address'
     );
     await expectRevert(
-      AVATokenContract.mintCurrentYear(someAccount, 0),
+      AVATokenContract.mintCurrentYear(toAccount, 0),
       'AVA: amount must be positive'
     );
     await expectRevert(
-      AVATokenContract.mintCurrentYear(someAccount, 100000000),
+      AVATokenContract.mintCurrentYear(toAccount, 100000000),
       'AVA: max supply exceeded'
     );
     await expectRevert(
-      AVATokenContract.mintCurrentYear(someAccount, 100000000),
-      'AVA: max supply exceeded'
-    );
-    await expectRevert(
-      AVATokenContract.mintCurrentYear(someAccount, 1000000, {
-        from: someAccount,
+      AVATokenContract.mintCurrentYear(toAccount, 1000000, {
+        from: toAccount,
       }),
       'ERC20PresetMinterPauser: must have minter role to mint'
     );
@@ -120,7 +117,7 @@ describe('AVA', function () {
       startTime.add(time.duration.days(YEAR_DURATION * 10))
     );
     await expectRevert(
-      AVATokenContract.mintCurrentYear(someAccount, 1000000),
+      AVATokenContract.mintCurrentYear(toAccount, 1000000),
       'AVA: inflationary model for the current year not set'
     );
   });
@@ -129,17 +126,15 @@ describe('AVA', function () {
     const currentYearID = await AVATokenContract.getCurrentYear();
     expect(currentYearID).to.be.bignumber.equal(web3.utils.BN('1'));
 
-    const { logs } = await AVATokenContract.mintCurrentYear(
-      someAccount,
-      amount,
-      { from: deployerAccount }
-    );
+    const { logs } = await AVATokenContract.mintCurrentYear(toAccount, amount, {
+      from: deployerAccount,
+    });
     expectEvent.inLogs(logs, 'EvtMintCurrentYear', {
-      to: someAccount,
+      to: toAccount,
       amount: web3.utils.BN(amount),
       currentYearID,
     });
-    expect(await AVATokenContract.balanceOf(someAccount)).to.be.bignumber.equal(
+    expect(await AVATokenContract.balanceOf(toAccount)).to.be.bignumber.equal(
       web3.utils.toWei(amount)
     );
 
@@ -157,6 +152,13 @@ describe('AVA', function () {
     // remainingMintAmount
     expect(inflationaryModelCurrentYear['2']).to.be.bignumber.equal(
       web3.utils.BN(`${4469096 - Number(amount)}`)
+    );
+
+    await expectRevert(
+      AVATokenContract.mintCurrentYear(toAccount, 4000000, {
+        from: deployerAccount,
+      }),
+      'AVA: amount exceeds the remainingMintAmount for the current year'
     );
   });
   it('increaseMaxSupply', async function () {
@@ -210,6 +212,144 @@ describe('AVA', function () {
         from: deployerAccount,
       }),
       'AVA: max supply can only be increased once in a year'
+    );
+  });
+  it('mintRemainingCurrentYear and check the inflationary model values', async function () {
+    await expectRevert(
+      AVATokenContract.mintRemainingCurrentYear(toAccount, {
+        from: toAccount,
+      }),
+      'ERC20PresetMinterPauser: must have minter role to mint'
+    );
+
+    const amount = '1000000';
+    const currentYearID = await AVATokenContract.getCurrentYear();
+    expect(currentYearID).to.be.bignumber.equal(web3.utils.BN('1'));
+
+    await AVATokenContract.mintCurrentYear(toAccount2, amount, {
+      from: deployerAccount,
+    });
+
+    const inflationaryModelCurrentYear =
+      await AVATokenContract.getInflationayModelCurrentYear();
+
+    // maxMintAmount
+    expect(inflationaryModelCurrentYear['0']).to.be.bignumber.equal(
+      web3.utils.BN('4469096')
+    );
+    // currentMintAmount
+    expect(inflationaryModelCurrentYear['1']).to.be.bignumber.equal(
+      web3.utils.BN(amount)
+    );
+    // remainingMintAmount
+    const remainingMintAmount = inflationaryModelCurrentYear['2'];
+    expect(remainingMintAmount).to.be.bignumber.equal(
+      web3.utils.BN(`${4469096 - Number(amount)}`)
+    );
+
+    const { logs } = await AVATokenContract.mintRemainingCurrentYear(
+      toAccount,
+      { from: deployerAccount }
+    );
+
+    expectEvent.inLogs(logs, 'EvtMintRemainingCurrentYear', {
+      to: toAccount,
+      amount: remainingMintAmount,
+      currentYearID,
+    });
+    expect(await AVATokenContract.balanceOf(toAccount)).to.be.bignumber.equal(
+      web3.utils.toWei(remainingMintAmount)
+    );
+
+    await expectRevert(
+      AVATokenContract.mintCurrentYear(toAccount, 4000000, {
+        from: deployerAccount,
+      }),
+      'AVA: no further mint possible for the current year'
+    );
+  });
+  it('mintRemainingPastYear and check the inflationary model values', async function () {
+    await expectRevert(
+      AVATokenContract.mintRemainingPastYear(toAccount, 0, {
+        from: deployerAccount,
+      }),
+      'AVA: pastYearID must be positive'
+    );
+
+    await expectRevert(
+      AVATokenContract.mintRemainingPastYear(toAccount, 1, {
+        from: deployerAccount,
+      }),
+      'AVA: pastYearID is not a past year'
+    );
+
+    const amount = '1000000';
+    let currentYearID = await AVATokenContract.getCurrentYear();
+    expect(currentYearID).to.be.bignumber.equal(web3.utils.BN('1'));
+
+    // Mint in year 1
+    await AVATokenContract.mintCurrentYear(toAccount, amount, {
+      from: deployerAccount,
+    });
+
+    const inflationaryModelCurrentYear =
+      await AVATokenContract.getInflationayModelCurrentYear();
+
+    // maxMintAmount
+    expect(inflationaryModelCurrentYear['0']).to.be.bignumber.equal(
+      web3.utils.BN('4469096')
+    );
+    // currentMintAmount
+    expect(inflationaryModelCurrentYear['1']).to.be.bignumber.equal(
+      web3.utils.BN(amount)
+    );
+
+    // remainingMintAmountInYear1
+    const remainingMintAmountInYear1 = inflationaryModelCurrentYear['2'];
+    expect(remainingMintAmountInYear1).to.be.bignumber.equal(
+      web3.utils.BN(`${4469096 - Number(amount)}`)
+    );
+
+    // Increase time to 1 years later
+    await time.increaseTo(startTime.add(time.duration.days(YEAR_DURATION * 1)));
+    await expectRevert(
+      AVATokenContract.mintRemainingPastYear(toAccount, 1, {
+        from: toAccount,
+      }),
+      'ERC20PresetMinterPauser: must have minter role to mint'
+    );
+
+    // We are now in year 2
+    currentYearID = await AVATokenContract.getCurrentYear();
+    expect(currentYearID).to.be.bignumber.equal(web3.utils.BN('2'));
+
+    // Mint in year 2
+    await AVATokenContract.mintCurrentYear(toAccount, amount, {
+      from: deployerAccount,
+    });
+
+    // Mint remaining of year 1
+    const { logs } = await AVATokenContract.mintRemainingPastYear(
+      toAccount2,
+      1,
+      { from: deployerAccount }
+    );
+
+    expectEvent.inLogs(logs, 'EvtMintRemainingPastYear', {
+      to: toAccount2,
+      amount: remainingMintAmountInYear1,
+      pastYearID: web3.utils.BN(1),
+    });
+
+    expect(await AVATokenContract.balanceOf(toAccount2)).to.be.bignumber.equal(
+      web3.utils.toWei(remainingMintAmountInYear1)
+    );
+
+    await expectRevert(
+      AVATokenContract.mintRemainingPastYear(toAccount, 1, {
+        from: deployerAccount,
+      }),
+      'AVA: no further remaining tokens of the specified past year to mint'
     );
   });
 });
