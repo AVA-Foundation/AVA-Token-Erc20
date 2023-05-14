@@ -8,7 +8,7 @@ const {
   time,
 } = require('@openzeppelin/test-helpers');
 
-const { expect } = require('chai');
+const { expect, assert } = require('chai');
 
 const AVA = contract.fromArtifact('AVA');
 
@@ -350,6 +350,129 @@ describe('AVA', function () {
         from: deployerAccount,
       }),
       'AVA: no further remaining tokens of the specified past year to mint'
+    );
+  });
+  it('updateInflationaryModelPerYear and check the inflationary model values', async function () {
+    const newMaxMintAmount = '4000000';
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(1, newMaxMintAmount, {
+        from: toAccount,
+      }),
+      'AVA: must have admin role to set the inflationary model'
+    );
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(0, newMaxMintAmount, {
+        from: deployerAccount,
+      }),
+      'AVA: yearID must be positive'
+    );
+
+    // Increase time to 1 years later
+    await time.increaseTo(startTime.add(time.duration.days(YEAR_DURATION * 1)));
+
+    // We are in year 2 afterwards
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(1, newMaxMintAmount, {
+        from: deployerAccount,
+      }),
+      'AVA: yearID must be from current year afterwards'
+    );
+
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(2, 0, {
+        from: deployerAccount,
+      }),
+      'AVA: maxMintAmount must be positive'
+    );
+
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(2, 50000000, {
+        from: deployerAccount,
+      }),
+      'AVA: maxMintAmount invalid as max supply exceeded'
+    );
+
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(11, newMaxMintAmount, {
+        from: deployerAccount,
+      }),
+      'AVA: inflationary model for the given year not exist'
+    );
+
+    // Mint 1M
+    const amount = '1000000';
+    await AVATokenContract.mintCurrentYear(toAccount, amount, {
+      from: deployerAccount,
+    });
+
+    await expectRevert(
+      AVATokenContract.updateInflationaryModelPerYear(2, 500000, {
+        from: deployerAccount,
+      }),
+      'AVA: maxMintAmount invalid as smaller than currentMintAmount'
+    );
+
+    await AVATokenContract.updateInflationaryModelPerYear(2, newMaxMintAmount, {
+      from: deployerAccount,
+    });
+
+    const inflationaryModel = await AVATokenContract.inflationaryModelPerYear(
+      2
+    );
+    // console.log('inflationaryModel:', inflationaryModel);
+    expect(inflationaryModel['0']).to.be.bignumber.equal(
+      web3.utils.BN(newMaxMintAmount)
+    );
+    expect(inflationaryModel['2']).to.be.bignumber.equal(
+      web3.utils.toBN(newMaxMintAmount).sub(inflationaryModel['1'])
+    );
+  });
+  it('addNewYearForInflationaryModel and check the inflationary model values', async function () {
+    const newMaxMintAmount = '4000000';
+    await expectRevert(
+      AVATokenContract.addNewYearForInflationaryModel(newMaxMintAmount, {
+        from: deployerAccount,
+      }),
+      'AVA: cannot add new inflationary model before 10-year period'
+    );
+
+    await time.increaseTo(
+      (await time.latest()).add(time.duration.days(10 * YEAR_DURATION))
+    );
+
+    await expectRevert(
+      AVATokenContract.addNewYearForInflationaryModel(newMaxMintAmount, {
+        from: toAccount,
+      }),
+      'AVA: must have admin role to set the inflationary model'
+    );
+    await expectRevert(
+      AVATokenContract.addNewYearForInflationaryModel(0, {
+        from: deployerAccount,
+      }),
+      'AVA: maxMintAmount must be positive'
+    );
+    await expectRevert(
+      AVATokenContract.addNewYearForInflationaryModel('100000000', {
+        from: deployerAccount,
+      }),
+      'AVA: maxMintAmount invalid as max supply exceeded'
+    );
+
+    await AVATokenContract.addNewYearForInflationaryModel(newMaxMintAmount, {
+      from: deployerAccount,
+    });
+
+    const inflationaryModelTotalYears =
+      await AVATokenContract.inflationaryModelTotalYears().then(
+        (res) => +res.toString()
+      );
+    assert.equal(inflationaryModelTotalYears, 11);
+
+    const inflationaryModelPerYear =
+      await AVATokenContract.inflationaryModelPerYear(11);
+    expect(inflationaryModelPerYear['0']).to.be.bignumber.equal(
+      web3.utils.BN(newMaxMintAmount)
     );
   });
 });
