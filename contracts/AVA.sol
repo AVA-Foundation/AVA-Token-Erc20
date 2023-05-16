@@ -136,6 +136,10 @@ contract AVA is ERC20PresetMinterPauser {
 
         inflationaryModelTotalYears++;
 
+        if (currentYear > inflationaryModelTotalYears) {
+            inflationaryModelTotalYears = currentYear;
+        }
+
         inflationaryModelPerYear[inflationaryModelTotalYears] = YearlyMintInfo(
             maxMintAmount,
             0,
