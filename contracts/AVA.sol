@@ -205,15 +205,15 @@ contract AVA is ERC20PresetMinterPauser {
     }
 
     // Only for test with the extra change of YEAR_DURATION to some minutes long
-    function resetStartTime() external {
-        require(
-            hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
-            "AVA: must have admin role to reset the start time"
-        );
-        startTime = block.timestamp;
+    // function resetStartTime() external {
+    //     require(
+    //         hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
+    //         "AVA: must have admin role to reset the start time"
+    //     );
+    //     startTime = block.timestamp;
 
-        emit EvtResetStartTime(block.timestamp);
-    }
+    //     emit EvtResetStartTime(block.timestamp);
+    // }
 
     // At any time within the current year, only MINTER_ROLE wallet can mint
     // the amount of tokens for multiple times as long as the maxMintAmount
