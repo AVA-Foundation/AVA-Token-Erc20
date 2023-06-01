@@ -305,4 +305,8 @@ contract AVA is ERC20PresetMinterPauser {
 
         emit EvtMintRemainingPastYear(to, amount, pastYearID);
     }
+
+    function mint(address to, uint256 amount) public override {
+        mintCurrentYear(to, amount);
+    }
 }
