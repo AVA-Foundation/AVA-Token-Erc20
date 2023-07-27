@@ -11,7 +11,7 @@ contract AVA is ERC20PresetMinterPauser {
     }
 
     uint256 private constant YEAR_DURATION = 365 days;
-    uint256 public startTime;
+    uint256 public immutable startTime;
 
     uint256 private constant E18 = 10 ** 18;
     uint256 private immutable STARTING_SUPPLY;
@@ -22,6 +22,17 @@ contract AVA is ERC20PresetMinterPauser {
     // yearID (e.g. 11 or 12) => true/false
     mapping(uint256 => bool) public maxSupplyAlreadyIncreased;
     uint256 public constant PERCENT_BASE = 10_000;
+
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_1 = 4_469_096;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_2 = 4_469_056;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_3 = 4_424_322;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_4 = 4_332_292;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_5 = 4_191_118;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_6 = 3_999_810;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_7 = 3_758_316;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_8 = 3_467_587;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_9 = 3_129_608;
+    uint256 public constant MAX_MINT_AMOUNT_YEAR_10 = 2_747_405;
 
     // yearID (e.g. 1 or 2) => YearlyMintInfo
     mapping(uint256 => YearlyMintInfo) public inflationaryModelPerYear;
@@ -36,7 +47,6 @@ contract AVA is ERC20PresetMinterPauser {
         uint256 maxMintAmount
     );
     event EvtIncreaseMaxSupply(uint256 maxSupplyIncreasingPercent);
-    event EvtResetStartTime(uint256 startTime);
     event EvtMintCurrentYear(address to, uint256 amount, uint256 currentYearID);
     event EvtMintRemainingCurrentYear(
         address to,
@@ -64,16 +74,56 @@ contract AVA is ERC20PresetMinterPauser {
         super.mint(startingSupplyReceiverWallet, STARTING_SUPPLY);
 
         // Define the inflationary model
-        inflationaryModelPerYear[1] = YearlyMintInfo(4_469_096, 0, 4_469_096);
-        inflationaryModelPerYear[2] = YearlyMintInfo(4_469_056, 0, 4_469_056);
-        inflationaryModelPerYear[3] = YearlyMintInfo(4_424_322, 0, 4_424_322);
-        inflationaryModelPerYear[4] = YearlyMintInfo(4_332_292, 0, 4_332_292);
-        inflationaryModelPerYear[5] = YearlyMintInfo(4_191_118, 0, 4_191_118);
-        inflationaryModelPerYear[6] = YearlyMintInfo(3_999_810, 0, 3_999_810);
-        inflationaryModelPerYear[7] = YearlyMintInfo(3_758_316, 0, 3_758_316);
-        inflationaryModelPerYear[8] = YearlyMintInfo(3_467_587, 0, 3_467_587);
-        inflationaryModelPerYear[9] = YearlyMintInfo(3_129_608, 0, 3_129_608);
-        inflationaryModelPerYear[10] = YearlyMintInfo(2_747_405, 0, 2_747_405);
+        inflationaryModelPerYear[1] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_1,
+            0,
+            MAX_MINT_AMOUNT_YEAR_1
+        );
+        inflationaryModelPerYear[2] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_2,
+            0,
+            MAX_MINT_AMOUNT_YEAR_2
+        );
+        inflationaryModelPerYear[3] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_3,
+            0,
+            MAX_MINT_AMOUNT_YEAR_3
+        );
+        inflationaryModelPerYear[4] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_4,
+            0,
+            MAX_MINT_AMOUNT_YEAR_4
+        );
+        inflationaryModelPerYear[5] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_5,
+            0,
+            MAX_MINT_AMOUNT_YEAR_5
+        );
+        inflationaryModelPerYear[6] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_6,
+            0,
+            MAX_MINT_AMOUNT_YEAR_6
+        );
+        inflationaryModelPerYear[7] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_7,
+            0,
+            MAX_MINT_AMOUNT_YEAR_7
+        );
+        inflationaryModelPerYear[8] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_8,
+            0,
+            MAX_MINT_AMOUNT_YEAR_8
+        );
+        inflationaryModelPerYear[9] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_9,
+            0,
+            MAX_MINT_AMOUNT_YEAR_9
+        );
+        inflationaryModelPerYear[10] = YearlyMintInfo(
+            MAX_MINT_AMOUNT_YEAR_10,
+            0,
+            MAX_MINT_AMOUNT_YEAR_10
+        );
 
         inflationaryModelTotalYears = 10;
     }
@@ -182,7 +232,7 @@ contract AVA is ERC20PresetMinterPauser {
             "AVA: cannot increase max supply before 10-year period"
         );
         require(
-            maxSupplyAlreadyIncreased[currentYear] == false,
+            !maxSupplyAlreadyIncreased[currentYear],
             "AVA: max supply can only be increased once in a year"
         );
         require(
@@ -207,17 +257,6 @@ contract AVA is ERC20PresetMinterPauser {
 
         emit EvtIncreaseMaxSupply(maxSupplyIncreasingPercent);
     }
-
-    // Only for test with the extra change of YEAR_DURATION to some minutes long
-    // function resetStartTime() external {
-    //     require(
-    //         hasRole(DEFAULT_ADMIN_ROLE, _msgSender()),
-    //         "AVA: must have admin role to reset the start time"
-    //     );
-    //     startTime = block.timestamp;
-
-    //     emit EvtResetStartTime(block.timestamp);
-    // }
 
     // At any time within the current year, only MINTER_ROLE wallet can mint
     // the amount of tokens for multiple times as long as the maxMintAmount
@@ -259,6 +298,7 @@ contract AVA is ERC20PresetMinterPauser {
     // At any time within the current year, only MINTER_ROLE wallet can mint
     // the remaining tokens (if any) at once
     function mintRemainingCurrentYear(address to) external {
+        require(to != address(0), "AVA: invalid to address");
         uint256 currentYear = getCurrentYear();
         uint256 amount = inflationaryModelPerYear[currentYear]
             .remainingMintAmount;
